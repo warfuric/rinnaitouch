@@ -5,6 +5,7 @@
             "single_instance_allowed": "Already configured. Only a single configuration possible."
         },
         "error": {
+            "cannot_connect": "Could not connect to the unit on port 27847. Check the IP address and that no other app is connected.",
             "unknown": "Unexpected error"
         },
         "step": {

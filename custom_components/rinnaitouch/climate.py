@@ -20,8 +20,7 @@ COOLING_COOL -> Refrigerated mode
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 import logging
 
 import voluptuous as vol
@@ -38,9 +37,9 @@ from homeassistant.const import (
     CONF_NAME,
     UnitOfTemperature,
 )
+from homeassistant.core import callback
 from homeassistant.helpers import (
     config_validation as cv,
-    device_registry as dr,
     entity_platform,
     entity_registry as er,
 )
@@ -91,8 +90,6 @@ SUPPORT_FLAGS_ZONE = (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-SCAN_INTERVAL = timedelta(seconds=5)
 
 SERVICE_SET_TIME = "rinnai_set_time"
 
@@ -168,36 +165,38 @@ class RinnaiTouch(ClimateEntity):
         self._TEMPERATURE_LIMITS = {"min": 8, "max": 30}
         self._COMFORT_LIMITS = {"min": 19, "max": 34}
         self._FAN_LIMITS = {"min": 0, "max": 16}
+
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to library updates once the entity is registered with HA."""
         self._system.subscribe_updates(self.system_updated)
 
     def system_updated(self):
-        """After system is updated write the new state to HA."""
+        """Write the new state to HA. Called from the library's worker thread."""
+        if self.hass is None:
+            return
         self.update_external_temperature()
-        # this very infrequently fails on startup so wrapping in try except
-        try:
-            if self._attr_first_update:
-                self.remove_irrelevant_entities()
-
+        if self._attr_first_update:
             self._attr_first_update = False
-            self.schedule_update_ha_state()
-        except:  # pylint: disable=bare-except
-            pass
+            # Registry changes must happen on the event loop, not on this thread.
+            self.hass.loop.call_soon_threadsafe(self.remove_irrelevant_entities)
+        self.schedule_update_ha_state()
 
+    @callback
     def remove_irrelevant_entities(self):
-        """After first update remove irrelevant entities."""
-        device_registry = dr.async_get(self.hass)
+        """After first update remove entities for capabilities the unit lacks."""
         entity_registry = er.async_get(self.hass)
 
-        device = device_registry.async_get_device({("rinnai_touch", self._host)}, set())
-
-        if device is None:
+        device_id = self.registry_entry.device_id if self.registry_entry else None
+        if device_id is None:
             _LOGGER.warning("Got entities for unknown device : %s", self._host)
             return
 
         devices_to_remove = []
 
         for entry in async_entries_for_device(
-            entity_registry, device.id, include_disabled_entities=True
+            entity_registry, device_id, include_disabled_entities=True
         ):
             if (
                 RinnaiCapabilities.COOLER
@@ -275,12 +274,6 @@ class RinnaiTouch(ClimateEntity):
                 ):
                     devices_to_remove.append(entry)
 
-        asyncio.run_coroutine_threadsafe(
-            self.remove_devices(entity_registry, devices_to_remove), self.hass.loop
-        )
-
-    async def remove_devices(self, entity_registry, devices_to_remove):
-        """Async helper to remove entities from registry."""
         for entry in devices_to_remove:
             _LOGGER.debug("Removing entity: %s %s", entry.platform, entry.entity_id)
             entity_registry.async_remove(entry.entity_id)
@@ -650,10 +643,8 @@ class RinnaiTouch(ClimateEntity):
         return False
 
     async def async_will_remove_from_hass(self):
-        """Disconnect from the device."""
-        # Doesn't seem to be needed here, as the ha_stop event already shuts down the client
-        # self._system.shutdown(None)
-        _LOGGER.debug("removing entity from hass")
+        """Stop receiving updates for an entity that is going away."""
+        self._system.unsubscribe_updates(self.system_updated)
 
 
 class RinnaiTouchZone(ClimateEntity):
@@ -689,15 +680,23 @@ class RinnaiTouchZone(ClimateEntity):
 
         self._TEMPERATURE_STEP = 1
         self._TEMPERATURE_LIMITS = {"min": 8, "max": 30}
+
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to library updates once the entity is registered with HA."""
         self._system.subscribe_updates(self.system_updated)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving updates for an entity that is going away."""
+        self._system.unsubscribe_updates(self.system_updated)
+
     def system_updated(self):
-        """After system is updated write the new state to HA."""
-        # this very infrequently fails on startup so wrapping in try except
-        try:
-            self.schedule_update_ha_state()
-        except:  # pylint: disable=bare-except
-            pass
+        """Write the new state to HA. Called from the library's worker thread."""
+        if self.hass is None:
+            return
+        self.update_external_temperature()
+        self.schedule_update_ha_state()
 
     @property
     def supported_features(self):
@@ -1117,11 +1116,6 @@ class RinnaiTouchZone(ClimateEntity):
     def turn_aux_heat_off(self):
         """Turn auxiliary heater off."""
         return False
-
-    # not common
-    async def async_update(self):
-        """Do nothing."""
-        pass  # pylint: disable=unnecessary-pass
 
     # not common
     @property

@@ -64,15 +64,22 @@ class RinnaiButtonEntity(ButtonEntity):
         self._attr_unique_id = device_id
         self._attr_name = name
         self._attr_device_name = name
+
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to library updates once the entity is registered with HA."""
         self._system.subscribe_updates(self.system_updated)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving updates for an entity that is going away."""
+        self._system.unsubscribe_updates(self.system_updated)
+
     def system_updated(self):
-        """After system is updated write the new state to HA."""
-        # this very infrequently fails on startup so wrapping in try except
-        try:
-            self.schedule_update_ha_state()
-        except:  # pylint: disable=bare-except
-            pass
+        """Write the new state to HA. Called from the library's worker thread."""
+        if self.hass is None:
+            return
+        self.schedule_update_ha_state()
 
     @property
     def device_info(self):

@@ -105,15 +105,22 @@ class RinnaiTemperatureSensor(SensorEntity):
         self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
         self._attr_device_class = SensorDeviceClass.TEMPERATURE
         self._attr_state_class = SensorStateClass.MEASUREMENT
+
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to library updates once the entity is registered with HA."""
         self._system.subscribe_updates(self.system_updated)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving updates for an entity that is going away."""
+        self._system.unsubscribe_updates(self.system_updated)
+
     def system_updated(self):
-        """After system is updated write the new state to HA."""
-        # this very infrequently fails on startup so wrapping in try except
-        try:
-            self.schedule_update_ha_state()
-        except:  # pylint: disable=bare-except
-            pass
+        """Write the new state to HA. Called from the library's worker thread."""
+        if self.hass is None:
+            return
+        self.schedule_update_ha_state()
 
     @property
     def device_info(self):
@@ -263,15 +270,21 @@ class RinnaiPeriodSensor(SensorEntity):
         self._attr_device_name = name
         self._attr_period = None
 
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to library updates once the entity is registered with HA."""
         self._system.subscribe_updates(self.system_updated)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving updates for an entity that is going away."""
+        self._system.unsubscribe_updates(self.system_updated)
+
     def system_updated(self):
-        """After system is updated write the new state to HA."""
-        # this very infrequently fails on startup so wrapping in try except
-        try:
-            self.schedule_update_ha_state()
-        except:  # pylint: disable=bare-except
-            pass
+        """Write the new state to HA. Called from the library's worker thread."""
+        if self.hass is None:
+            return
+        self.schedule_update_ha_state()
 
     @property
     def device_info(self):
@@ -368,15 +381,22 @@ class RinnaiConnectionStateSensor(SensorEntity):
         self._attr_name = f"{name} Connection State"
         self._attr_device_name = name
         self._connection_state = None
+
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to connection state changes; the handler fires immediately."""
         self._system.register_socket_state_handler(self._connection_state_handler)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving connection state changes."""
+        self._system.unregister_socket_state_handler(self._connection_state_handler)
+
     def _connection_state_handler(self, state):
-        """Handle connection state updates from pyrinnaitouch."""
-        try:
-            self._connection_state = getattr(state, "name", str(state))
+        """Handle connection state updates, called from the library's thread."""
+        self._connection_state = getattr(state, "name", str(state))
+        if self.hass is not None:
             self.schedule_update_ha_state()
-        except Exception:  # pylint: disable=broad-except
-            pass
 
     @property
     def device_info(self):

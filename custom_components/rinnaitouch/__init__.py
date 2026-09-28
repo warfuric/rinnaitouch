@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.const import CONF_HOST, EVENT_HOMEASSISTANT_STOP
-from homeassistant.core import HomeAssistant
+from homeassistant.core import Event, HomeAssistant
 from homeassistant.helpers.entity import Entity
 from homeassistant.const import Platform
 from homeassistant.helpers.device_registry import DeviceEntry
@@ -35,23 +35,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.debug("Get controller with IP: %s", ip_address)
     try:
         system: RinnaiSystem = RinnaiSystem.get_instance(ip_address)
-        # scenes = await system.getSupportedScenes()
-        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, system.shutdown)
         scenes = []
         await hass.async_add_executor_job(system.get_status)
-    except (
-        Exception,
-        ConnectionError,
-        ConnectionRefusedError,
-    ) as err:
+    except Exception as err:  # pylint: disable=broad-except
         _LOGGER.error("Get controller error: %s", err)
         raise ConfigEntryNotReady from err
+
+    async def _async_shutdown(_event: Event) -> None:
+        # Joins the socket thread, so keep it off the event loop.
+        await hass.async_add_executor_job(system.shutdown)
+
+    # Unsubscribe on unload, otherwise a reload leaves a stale listener behind that
+    # points at the previous RinnaiSystem instance.
+    entry.async_on_unload(
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _async_shutdown)
+    )
 
     hass.data.setdefault(DOMAIN, {})[entry.entry_id] = RinnaiData(
         system=system, scenes=scenes
     )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # hass.config_entries.async_setup_platforms(entry, PLATFORMS)
     return True
 
 
@@ -61,9 +64,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry):
     _LOGGER.debug("Removing controller with IP: %s", ip_address)
 
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        hass.data[DOMAIN].pop(entry.entry_id)
+        hass.data.get(DOMAIN, {}).pop(entry.entry_id, None)
 
-    RinnaiSystem.remove_instance(ip_address)
+    # remove_instance joins the socket thread (up to 15 s): never on the event loop.
+    await hass.async_add_executor_job(RinnaiSystem.remove_instance, ip_address)
     _LOGGER.debug("Controller with IP: %s removed", ip_address)
 
     return unload_ok

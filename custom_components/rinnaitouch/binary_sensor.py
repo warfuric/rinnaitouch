@@ -109,15 +109,22 @@ class RinnaiBinarySensorEntity(BinarySensorEntity):
         self._attr_unique_id = device_id
         self._attr_name = name + " Binary Sensor"
         self._attr_device_name = name
+
+    _attr_should_poll = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to library updates once the entity is registered with HA."""
         self._system.subscribe_updates(self.system_updated)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving updates for an entity that is going away."""
+        self._system.unsubscribe_updates(self.system_updated)
+
     def system_updated(self):
-        """After system is updated write the new state to HA."""
-        # this very infrequently fails on startup so wrapping in try except
-        try:
-            self.schedule_update_ha_state()
-        except:  # pylint: disable=bare-except
-            pass
+        """Write the new state to HA. Called from the library's worker thread."""
+        if self.hass is None:
+            return
+        self.schedule_update_ha_state()
 
     @property
     def device_info(self):
@@ -506,18 +513,19 @@ class RinnaiConnectedBinarySensorEntity(RinnaiBinarySensorEntity):
         self._attr_unique_id = "connected_" + str.replace(ip_address, ".", "_")
         self._connected = None
 
-        # Subscribe to connection state changes
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to connection state changes; the handler fires immediately."""
         self._system.register_socket_state_handler(self._connection_state_handler)
 
+    async def async_will_remove_from_hass(self) -> None:
+        """Stop receiving connection state changes."""
+        self._system.unregister_socket_state_handler(self._connection_state_handler)
+
     def _connection_state_handler(self, state):
-        """Handle connection state updates from pyrinnaitouch."""
-        # Connected if state is CONNECTED, else not
-        try:
-            # Enum value 3 is CONNECTED, but use name for clarity
-            self._connected = getattr(state, "name", None) == "CONNECTED"
+        """Handle connection state updates, called from the library's thread."""
+        self._connected = getattr(state, "name", None) == "CONNECTED"
+        if self.hass is not None:
             self.schedule_update_ha_state()
-        except Exception:  # pylint: disable=broad-except
-            pass
 
     @property
     def is_on(self) -> bool:

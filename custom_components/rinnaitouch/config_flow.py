@@ -1,13 +1,11 @@
 """Config flow for rinnai-brivis-wifi."""
 import logging
+import socket
 
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_NAME
-from homeassistant.data_entry_flow import AbortFlow
-
-from pyrinnaitouch import RinnaiSystem
 
 from .const import (
     DOMAIN,
@@ -26,6 +24,9 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+RINNAI_TCP_PORT = 27847
+CONNECT_TIMEOUT_SECONDS = 5
 
 STEP_USER_DATA_SCHEMA = vol.Schema(
     {
@@ -46,6 +47,17 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
+def _probe_unit(host: str) -> None:
+    """Open and immediately close a TCP connection to the unit.
+
+    Raises OSError when the host is unreachable. Deliberately does not start the
+    library's threads: the unit only tolerates one client, and a flow that is
+    abandoned must not leave a live connection behind.
+    """
+    with socket.create_connection((host, RINNAI_TCP_PORT), CONNECT_TIMEOUT_SECONDS):
+        pass
+
+
 class RinnaiTouchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Rinnai Touch."""
 
@@ -53,18 +65,20 @@ class RinnaiTouchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle a flow initialized by the user."""
         errors = {}
         if user_input is not None:
-            system: RinnaiSystem = RinnaiSystem.get_instance(user_input[CONF_HOST])
-            device_id = "rinnaitouch_" + str.replace(user_input[CONF_HOST], ".", "_")
+            host = user_input[CONF_HOST].strip()
+            user_input[CONF_HOST] = host
+            device_id = "rinnaitouch_" + str.replace(host, ".", "_")
+            await self.async_set_unique_id(device_id)
+            self._abort_if_unique_id_configured()
             try:
-                await self.hass.async_add_executor_job(system.get_status)
-            except AbortFlow:
-                return self.async_abort(reason="single_instance_allowed")
+                await self.hass.async_add_executor_job(_probe_unit, host)
+            except OSError as err:
+                _LOGGER.warning("Could not connect to Rinnai unit at %s: %s", host, err)
+                errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
                 _LOGGER.exception("Unexpected exception")
                 errors["base"] = "unknown"
             else:
-                await self.async_set_unique_id(device_id)
-                self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=user_input[CONF_NAME], data=user_input
                 )
