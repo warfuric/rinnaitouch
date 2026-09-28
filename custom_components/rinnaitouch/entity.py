@@ -1,15 +1,15 @@
-"""Shared lifecycle for entities fed by the pyrinnaitouch worker thread.
+"""Shared lifecycle for entities fed by the pyrinnaitouch library.
 
-The library calls back from its own thread, never from the event loop, so these
-mixins only use thread-safe Home Assistant calls: ``schedule_update_ha_state``
-hands the state write to the loop. Entities subscribe once they are registered
-with Home Assistant and unsubscribe when removed, so a callback can never arrive
-for an entity that has no ``hass`` yet or has already gone.
+The library runs on Home Assistant's event loop and calls back from it, so these
+mixins write state directly. Entities subscribe once they are registered with Home
+Assistant and unsubscribe when removed, so a callback can never arrive for an
+entity that has no ``hass`` yet or has already gone.
 """
 from __future__ import annotations
 
-from pyrinnaitouch import RinnaiSystem
-from pyrinnaitouch.pollconnection import RinnaiConnectionState
+from homeassistant.core import callback
+
+from pyrinnaitouch import RinnaiConnectionState, RinnaiSystem
 
 
 class RinnaiPushMixin:
@@ -31,12 +31,13 @@ class RinnaiPushMixin:
         self._system.unsubscribe_updates(self._handle_system_update)
         await super().async_will_remove_from_hass()
 
+    @callback
     def _handle_system_update(self) -> None:
-        """Called from the library's worker thread on every status."""
+        """Called on the event loop for every status (and for a lost link)."""
         if self.hass is None:
             return
         self._on_system_update()
-        self.schedule_update_ha_state()
+        self.async_write_ha_state()
 
     def _on_system_update(self) -> None:
         """Hook for entities that derive extra data before the state write."""
@@ -62,11 +63,12 @@ class RinnaiConnectionStateMixin:
         self._system.unregister_socket_state_handler(self._handle_connection_state)
         await super().async_will_remove_from_hass()
 
+    @callback
     def _handle_connection_state(self, state: RinnaiConnectionState) -> None:
-        """Called from the library's worker thread on every state change."""
+        """Called on the event loop for every state change."""
         self._on_connection_state(state)
         if self.hass is not None:
-            self.schedule_update_ha_state()
+            self.async_write_ha_state()
 
     def _on_connection_state(self, state: RinnaiConnectionState) -> None:
         """Record the new connection state on the entity."""

@@ -5,10 +5,12 @@ from homeassistant.data_entry_flow import FlowResultType
 
 from pyrinnaitouch.system import RinnaiSystem
 
+from custom_components.rinnaitouch import config_flow
 from custom_components.rinnaitouch.const import DOMAIN
+from tests.conftest import closed_tcp_port
 
 USER_INPUT = {
-    CONF_HOST: "192.0.2.10",
+    CONF_HOST: "127.0.0.1",
     CONF_NAME: "Rinnai",
     "Zone A": True,
     "Zone B": False,
@@ -25,28 +27,22 @@ async def _submit(hass: HomeAssistant):
 
 
 async def test_unreachable_host_shows_error_and_starts_nothing(hass, monkeypatch):
-    def refuse(_host):
-        raise OSError("connection refused")
-
-    monkeypatch.setattr("custom_components.rinnaitouch.config_flow._probe_unit", refuse)
+    monkeypatch.setattr(config_flow, "RINNAI_TCP_PORT", closed_tcp_port())
+    monkeypatch.setattr(config_flow, "CONNECT_TIMEOUT_SECONDS", 1)
     result = await _submit(hass)
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "cannot_connect"}
     assert not RinnaiSystem.instances
 
 
-async def test_reachable_host_creates_entry_then_rejects_duplicate(hass, monkeypatch):
-    probes = []
-    monkeypatch.setattr(
-        "custom_components.rinnaitouch.config_flow._probe_unit", probes.append
-    )
+async def test_reachable_host_creates_entry_then_rejects_duplicate(hass, unit, monkeypatch):
+    monkeypatch.setattr(config_flow, "RINNAI_TCP_PORT", unit.tcp_port)
     result = await _submit(hass)
     assert result["type"] is FlowResultType.CREATE_ENTRY
-    assert result["data"][CONF_HOST] == "192.0.2.10"
-    assert probes == ["192.0.2.10"]
+    assert result["data"][CONF_HOST] == "127.0.0.1"
     await hass.async_block_till_done()
+    assert unit.connections >= 1  # the probe, then the real connection from setup
 
     result = await _submit(hass)
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
-    assert probes == ["192.0.2.10"]  # not probed again once known

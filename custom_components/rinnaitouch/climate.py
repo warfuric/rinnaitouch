@@ -37,13 +37,11 @@ from homeassistant.const import (
     CONF_NAME,
     UnitOfTemperature,
 )
-from homeassistant.core import callback
 from homeassistant.helpers import (
     config_validation as cv,
     entity_platform,
-    entity_registry as er,
 )
-from homeassistant.helpers.entity_registry import async_entries_for_device
+from homeassistant.util import dt as dt_util
 
 from pyrinnaitouch import (
     TEMP_FAHRENHEIT,
@@ -154,7 +152,6 @@ class RinnaiTouch(RinnaiPushMixin, ClimateEntity):
         self._attr_device_name = name
 
         self._hass = hass
-        self._attr_first_update = True
         self._temerature_entity_name = temperature_entity
         self._sensor_temperature = 0
         self.update_external_temperature()
@@ -168,107 +165,8 @@ class RinnaiTouch(RinnaiPushMixin, ClimateEntity):
         self._FAN_LIMITS = {"min": 0, "max": 16}
 
     def _on_system_update(self) -> None:
-        """Runs on the library's worker thread before each state write."""
+        """Refresh the external temperature before each state write."""
         self.update_external_temperature()
-        if self._attr_first_update:
-            self._attr_first_update = False
-            # Registry changes must happen on the event loop, not on this thread.
-            self.hass.loop.call_soon_threadsafe(self.remove_irrelevant_entities)
-
-    @callback
-    def remove_irrelevant_entities(self):
-        """After first update remove entities for capabilities the unit lacks."""
-        entity_registry = er.async_get(self.hass)
-
-        device_id = self.registry_entry.device_id if self.registry_entry else None
-        if device_id is None:
-            _LOGGER.debug("No registry entry yet for %s, skipping prune", self._host)
-            return
-
-        devices_to_remove = []
-
-        for entry in async_entries_for_device(
-            entity_registry, device_id, include_disabled_entities=True
-        ):
-            if (
-                RinnaiCapabilities.COOLER
-                not in self._system.get_stored_status().capabilities
-            ):  # pylint: disable=too-many-boolean-expressions
-                if (
-                    (
-                        entry.domain == "switch"
-                        and "cooling_mode" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "calling_cool" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "compressor_active" in entry.entity_id.lower()
-                    )
-                ):
-                    devices_to_remove.append(entry)
-
-            if (
-                RinnaiCapabilities.HEATER
-                not in self._system.get_stored_status().capabilities
-            ):  # pylint: disable=too-many-boolean-expressions
-                if (
-                    (
-                        entry.domain == "switch"
-                        and "heater_mode" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "calling_heat" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "gas_valve_active" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "preheating" in entry.entity_id.lower()
-                    )
-                ):
-                    devices_to_remove.append(entry)
-
-            if (
-                RinnaiCapabilities.EVAP
-                not in self._system.get_stored_status().capabilities
-            ):  # pylint: disable=too-many-boolean-expressions
-                if (
-                    (
-                        entry.domain == "switch"
-                        and "evap_mode" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "switch"
-                        and "evap_fan" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "switch"
-                        and "water_pump" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "cooler_busy" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "pump_operating" in entry.entity_id.lower()
-                    )
-                    or (
-                        entry.domain == "binary_sensor"
-                        and "prewetting" in entry.entity_id.lower()
-                    )
-                ):
-                    devices_to_remove.append(entry)
-
-        for entry in devices_to_remove:
-            _LOGGER.debug("Removing entity: %s %s", entry.platform, entry.entity_id)
-            entity_registry.async_remove(entry.entity_id)
 
     @property
     def supported_features(self):
@@ -440,7 +338,9 @@ class RinnaiTouch(RinnaiPushMixin, ClimateEntity):
         return False
 
     async def set_system_time(self, set_datetime: datetime = None):
-        """Set the system time."""
+        """Set the system time; a zone-aware datetime is written in local time."""
+        if set_datetime is not None and set_datetime.tzinfo is not None:
+            set_datetime = dt_util.as_local(set_datetime)
         await self._system.set_system_time(set_datetime)
 
     async def async_set_temperature(self, **kwargs):
@@ -665,7 +565,7 @@ class RinnaiTouchZone(RinnaiPushMixin, ClimateEntity):
         self._TEMPERATURE_LIMITS = {"min": 8, "max": 30}
 
     def _on_system_update(self) -> None:
-        """Runs on the library's worker thread before each state write."""
+        """Refresh the external temperature before each state write."""
         self.update_external_temperature()
 
     @property

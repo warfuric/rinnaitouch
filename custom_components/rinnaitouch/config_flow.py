@@ -1,6 +1,6 @@
 """Config flow for rinnai-brivis-wifi."""
+import asyncio
 import logging
-import socket
 
 import voluptuous as vol
 
@@ -47,15 +47,18 @@ STEP_USER_DATA_SCHEMA = vol.Schema(
 )
 
 
-def _probe_unit(host: str) -> None:
+async def _async_probe_unit(host: str) -> None:
     """Open and immediately close a TCP connection to the unit.
 
-    Raises OSError when the host is unreachable. Deliberately does not start the
-    library's threads: the unit only tolerates one client, and a flow that is
-    abandoned must not leave a live connection behind.
+    Raises OSError or asyncio.TimeoutError when the host is unreachable. It
+    deliberately does not start the library: the unit only tolerates one client,
+    and a flow that is abandoned must not leave a live connection behind.
     """
-    with socket.create_connection((host, RINNAI_TCP_PORT), CONNECT_TIMEOUT_SECONDS):
-        pass
+    _, writer = await asyncio.wait_for(
+        asyncio.open_connection(host, RINNAI_TCP_PORT), CONNECT_TIMEOUT_SECONDS
+    )
+    writer.close()
+    await writer.wait_closed()
 
 
 class RinnaiTouchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
@@ -71,8 +74,8 @@ class RinnaiTouchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             await self.async_set_unique_id(device_id)
             self._abort_if_unique_id_configured()
             try:
-                await self.hass.async_add_executor_job(_probe_unit, host)
-            except OSError as err:
+                await _async_probe_unit(host)
+            except (OSError, asyncio.TimeoutError) as err:
                 _LOGGER.warning("Could not connect to Rinnai unit at %s: %s", host, err)
                 errors["base"] = "cannot_connect"
             except Exception:  # pylint: disable=broad-except
