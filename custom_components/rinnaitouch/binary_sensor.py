@@ -346,9 +346,9 @@ class RinnaiTimeSettingSensorEntity(RinnaiBinarySensorEntity):
     def available(self):
         """If the sensor is currently available."""
         state: RinnaiSystemStatus = self._system.get_stored_status()
-        if not state.has_fault:
-            return True
-        return False
+        if state.mode == RinnaiSystemMode.NONE:
+            return False  # no status: the link is down
+        return not state.has_fault
 
 
 class RinnaiZoneStateBinarySensorEntity(RinnaiBinarySensorEntity):

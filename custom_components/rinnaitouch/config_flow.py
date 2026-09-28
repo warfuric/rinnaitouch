@@ -7,6 +7,8 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_HOST, CONF_NAME
 
+from pyrinnaitouch.connection import resolve_ipv4
+
 from .const import (
     DOMAIN,
     CONF_ZONE_A,
@@ -70,8 +72,10 @@ class RinnaiTouchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
             user_input[CONF_HOST] = host
-            device_id = "rinnaitouch_" + host.replace(".", "_")
-            await self.async_set_unique_id(device_id)
+            # The unit's identity is its address, so an alias of a configured unit is
+            # caught here rather than by probing a socket that is already in use.
+            address = await resolve_ipv4(host)
+            await self.async_set_unique_id("rinnaitouch_" + address.replace(".", "_"))
             self._abort_if_unique_id_configured()
             try:
                 await _async_probe_unit(host)

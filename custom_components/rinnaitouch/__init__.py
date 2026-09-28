@@ -81,6 +81,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: RinnaiConfigEntry):
         raise ConfigEntryNotReady(
             f"No status from the Rinnai unit at {ip_address} within {SETUP_TIMEOUT} s"
         )
+    # Taken now, while the status is fresh: a link blip during platform setup would
+    # reset it to an empty one and the prune must never act on that.
+    capabilities = system.get_stored_status().capabilities
 
     async def _async_stop(_event: Event) -> None:
         await system.async_stop()
@@ -92,7 +95,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: RinnaiConfigEntry):
     )
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    _async_prune_unsupported_entities(hass, entry, system.get_stored_status().capabilities)
+    _async_prune_unsupported_entities(hass, entry, capabilities)
     return True
 
 
