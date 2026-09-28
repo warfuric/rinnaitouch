@@ -121,6 +121,17 @@ async def test_home_assistant_stop_shuts_the_library_down(hass: HomeAssistant, c
     assert not [r for r in caplog.records if r.levelno >= logging.ERROR]
 
 
+async def test_unload_unsubscribes_every_entity(hass: HomeAssistant):
+    entry = await _setup(hass)
+    system = RinnaiSystem.instances[HOST]
+    handlers = system._on_updated._Event__eventhandlers  # pylint: disable=protected-access
+    state_handlers = system._connection._connection_state_handlers  # pylint: disable=protected-access
+    assert len(handlers) > 10 and len(state_handlers) == 2
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert handlers == [] and state_handlers == []
+
+
 async def test_stop_listener_is_removed_on_unload(hass: HomeAssistant):
     entry = await _setup(hass)
     assert await hass.config_entries.async_unload(entry.entry_id)

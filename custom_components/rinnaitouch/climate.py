@@ -54,6 +54,7 @@ from pyrinnaitouch import (
     RinnaiSystemStatus,
 )
 
+from .entity import RinnaiPushMixin
 from .const import (
     CONF_TEMP_SENSOR,
     CONF_TEMP_SENSOR_A,
@@ -138,7 +139,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
     return True
 
 
-class RinnaiTouch(ClimateEntity):
+class RinnaiTouch(RinnaiPushMixin, ClimateEntity):
     """Main climate entity for the unit."""
 
     # pylint: disable=too-many-instance-attributes,too-many-public-methods
@@ -166,22 +167,13 @@ class RinnaiTouch(ClimateEntity):
         self._COMFORT_LIMITS = {"min": 19, "max": 34}
         self._FAN_LIMITS = {"min": 0, "max": 16}
 
-    _attr_should_poll = False
-
-    async def async_added_to_hass(self) -> None:
-        """Subscribe to library updates once the entity is registered with HA."""
-        self._system.subscribe_updates(self.system_updated)
-
-    def system_updated(self):
-        """Write the new state to HA. Called from the library's worker thread."""
-        if self.hass is None:
-            return
+    def _on_system_update(self) -> None:
+        """Runs on the library's worker thread before each state write."""
         self.update_external_temperature()
         if self._attr_first_update:
             self._attr_first_update = False
             # Registry changes must happen on the event loop, not on this thread.
             self.hass.loop.call_soon_threadsafe(self.remove_irrelevant_entities)
-        self.schedule_update_ha_state()
 
     @callback
     def remove_irrelevant_entities(self):
@@ -190,7 +182,7 @@ class RinnaiTouch(ClimateEntity):
 
         device_id = self.registry_entry.device_id if self.registry_entry else None
         if device_id is None:
-            _LOGGER.warning("Got entities for unknown device : %s", self._host)
+            _LOGGER.debug("No registry entry yet for %s, skipping prune", self._host)
             return
 
         devices_to_remove = []
@@ -282,11 +274,6 @@ class RinnaiTouch(ClimateEntity):
     def supported_features(self):
         """Return the list of supported features."""
         return self._support_flags
-
-    @property
-    def should_poll(self):
-        """Return the polling state."""
-        return False
 
     @property
     def name(self):
@@ -642,12 +629,8 @@ class RinnaiTouch(ClimateEntity):
             return True
         return False
 
-    async def async_will_remove_from_hass(self):
-        """Stop receiving updates for an entity that is going away."""
-        self._system.unsubscribe_updates(self.system_updated)
 
-
-class RinnaiTouchZone(ClimateEntity):
+class RinnaiTouchZone(RinnaiPushMixin, ClimateEntity):
     """Climate entity for a zone."""
 
     # pylint: disable=too-many-instance-attributes,too-many-public-methods
@@ -681,32 +664,14 @@ class RinnaiTouchZone(ClimateEntity):
         self._TEMPERATURE_STEP = 1
         self._TEMPERATURE_LIMITS = {"min": 8, "max": 30}
 
-    _attr_should_poll = False
-
-    async def async_added_to_hass(self) -> None:
-        """Subscribe to library updates once the entity is registered with HA."""
-        self._system.subscribe_updates(self.system_updated)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Stop receiving updates for an entity that is going away."""
-        self._system.unsubscribe_updates(self.system_updated)
-
-    def system_updated(self):
-        """Write the new state to HA. Called from the library's worker thread."""
-        if self.hass is None:
-            return
+    def _on_system_update(self) -> None:
+        """Runs on the library's worker thread before each state write."""
         self.update_external_temperature()
-        self.schedule_update_ha_state()
 
     @property
     def supported_features(self):
         """Return the list of supported features."""
         return self._support_flags
-
-    @property
-    def should_poll(self):
-        """Return the polling state."""
-        return False
 
     @property
     def name(self):

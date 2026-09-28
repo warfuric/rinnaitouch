@@ -13,6 +13,7 @@ from pyrinnaitouch import (
     RinnaiSystemStatus,
 )
 
+from .entity import RinnaiPushMixin
 from .const import (
     CONF_ZONE_A,
     CONF_ZONE_B,
@@ -79,7 +80,7 @@ async def async_setup_entry(hass, entry, async_add_entities):  # pylint: disable
     return True
 
 
-class RinnaiExtraEntity(Entity):
+class RinnaiExtraEntity(RinnaiPushMixin, Entity):
     """Base entity with a name and system update capability."""
 
     def __init__(self, ip_address, name):
@@ -92,22 +93,6 @@ class RinnaiExtraEntity(Entity):
         self._attr_unique_id = device_id
         self._attr_name = name
         self._attr_device_name = name
-
-    _attr_should_poll = False
-
-    async def async_added_to_hass(self) -> None:
-        """Subscribe to library updates once the entity is registered with HA."""
-        self._system.subscribe_updates(self.system_updated)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Stop receiving updates for an entity that is going away."""
-        self._system.unsubscribe_updates(self.system_updated)
-
-    def system_updated(self):
-        """Write the new state to HA. Called from the library's worker thread."""
-        if self.hass is None:
-            return
-        self.schedule_update_ha_state()
 
     @property
     def device_info(self):

@@ -5,6 +5,7 @@ from homeassistant.components.binary_sensor import BinarySensorEntity
 from homeassistant.const import CONF_NAME, CONF_HOST
 
 from pyrinnaitouch import RinnaiSystem, RinnaiSystemMode, RinnaiSystemStatus
+from .entity import RinnaiConnectionStateMixin, RinnaiPushMixin
 from .const import (
     CONF_ZONE_A,
     CONF_ZONE_B,
@@ -96,8 +97,8 @@ async def async_setup_entry(hass, entry, async_add_entities):  # pylint: disable
     return True
 
 
-class RinnaiBinarySensorEntity(BinarySensorEntity):
-    """Base class for all binary sensor entities setting up names and system instance."""
+class RinnaiBinarySensorBase(BinarySensorEntity):
+    """Naming and device wiring shared by every binary sensor."""
 
     def __init__(self, ip_address, name) -> None:
         self._host = ip_address
@@ -109,22 +110,6 @@ class RinnaiBinarySensorEntity(BinarySensorEntity):
         self._attr_unique_id = device_id
         self._attr_name = name + " Binary Sensor"
         self._attr_device_name = name
-
-    _attr_should_poll = False
-
-    async def async_added_to_hass(self) -> None:
-        """Subscribe to library updates once the entity is registered with HA."""
-        self._system.subscribe_updates(self.system_updated)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Stop receiving updates for an entity that is going away."""
-        self._system.unsubscribe_updates(self.system_updated)
-
-    def system_updated(self):
-        """Write the new state to HA. Called from the library's worker thread."""
-        if self.hass is None:
-            return
-        self.schedule_update_ha_state()
 
     @property
     def device_info(self):
@@ -145,6 +130,10 @@ class RinnaiBinarySensorEntity(BinarySensorEntity):
     @property
     def is_on(self) -> bool:
         return False
+
+
+class RinnaiBinarySensorEntity(RinnaiPushMixin, RinnaiBinarySensorBase):
+    """Binary sensor refreshed on every status from the unit."""
 
 
 class RinnaiUnitStateBinarySensorEntity(RinnaiBinarySensorEntity):
@@ -504,7 +493,7 @@ class RinnaiZoneFanOperatingBinarySensorEntity(RinnaiZoneStateBinarySensorEntity
         return False
 
 
-class RinnaiConnectedBinarySensorEntity(RinnaiBinarySensorEntity):
+class RinnaiConnectedBinarySensorEntity(RinnaiConnectionStateMixin, RinnaiBinarySensorBase):
     """Binary sensor for Rinnai connection state."""
 
     def __init__(self, ip_address, name) -> None:
@@ -513,19 +502,8 @@ class RinnaiConnectedBinarySensorEntity(RinnaiBinarySensorEntity):
         self._attr_unique_id = "connected_" + str.replace(ip_address, ".", "_")
         self._connected = None
 
-    async def async_added_to_hass(self) -> None:
-        """Subscribe to connection state changes; the handler fires immediately."""
-        self._system.register_socket_state_handler(self._connection_state_handler)
-
-    async def async_will_remove_from_hass(self) -> None:
-        """Stop receiving connection state changes."""
-        self._system.unregister_socket_state_handler(self._connection_state_handler)
-
-    def _connection_state_handler(self, state):
-        """Handle connection state updates, called from the library's thread."""
+    def _on_connection_state(self, state):
         self._connected = getattr(state, "name", None) == "CONNECTED"
-        if self.hass is not None:
-            self.schedule_update_ha_state()
 
     @property
     def is_on(self) -> bool:

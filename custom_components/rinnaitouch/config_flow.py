@@ -67,7 +67,7 @@ class RinnaiTouchConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
             user_input[CONF_HOST] = host
-            device_id = "rinnaitouch_" + str.replace(host, ".", "_")
+            device_id = "rinnaitouch_" + host.replace(".", "_")
             await self.async_set_unique_id(device_id)
             self._abort_if_unique_id_configured()
             try:
