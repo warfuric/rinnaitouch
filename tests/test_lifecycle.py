@@ -89,7 +89,13 @@ async def test_entities_go_unavailable_while_the_link_is_down(hass: HomeAssistan
     unit.send_status = False  # the TCP session comes straight back, but no status does
     await unit.disconnect_clients()
     await _wait_for(lambda: hass.states.get("climate.rinnai").state == "unavailable")
-    assert hass.states.get("switch.rinnai_heater_mode_switch").state == "unavailable"
+    for entity_id in (
+        "switch.rinnai_heater_mode_switch",
+        "select.rinnai_preset_select",
+        "sensor.rinnai_schedule_time_period_sensor",
+        "binary_sensor.rinnai_fan_active_sensor",
+    ):
+        assert hass.states.get(entity_id).state == "unavailable", entity_id
     assert "off" in connected_history  # the link was reported down while it was down
     unit.send_status = True
     await _wait_for(lambda: hass.states.get("climate.rinnai").state == "heat")

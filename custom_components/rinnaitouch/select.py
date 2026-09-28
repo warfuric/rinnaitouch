@@ -4,7 +4,7 @@
 from homeassistant.components.select import SelectEntity
 from homeassistant.const import CONF_NAME, CONF_HOST
 
-from pyrinnaitouch import RinnaiSystem, RinnaiOperatingMode
+from pyrinnaitouch import RinnaiOperatingMode, RinnaiSystem, RinnaiSystemMode
 
 from .entity import RinnaiPushMixin
 from .const import PRESET_AUTO, PRESET_MANUAL, DEFAULT_NAME
@@ -58,6 +58,11 @@ class RinnaiSelectPresetEntity(RinnaiPushMixin, SelectEntity):
     def icon(self):
         """Return the icon to use in the frontend for this device."""
         return "mdi:format-list-group"
+
+    @property
+    def available(self) -> bool:
+        """Unavailable while there is no status, i.e. the link is down."""
+        return self._system.get_stored_status().mode != RinnaiSystemMode.NONE
 
     @property
     def current_option(self):

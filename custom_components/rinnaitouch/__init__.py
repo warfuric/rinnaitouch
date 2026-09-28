@@ -57,6 +57,13 @@ _CAPABILITY_ENTITY_PREFIXES = {
     ),
 }
 
+# Fan-operating sensors apply to ducted heating and cooling alike; only a unit with
+# neither (evaporative only) has no use for them.
+_HEATER_OR_COOLER_PREFIXES = (
+    "rinnaifanoperatingbinarysensorentity",
+    "rinnaizonefanoperatingbinarysensorentity",
+)
+
 type RinnaiConfigEntry = ConfigEntry[RinnaiSystem]
 
 
@@ -106,6 +113,8 @@ def _async_prune_unsupported_entities(
         if capability not in capabilities
         for prefix in prefixes
     )
+    if not capabilities & (RinnaiCapabilities.HEATER | RinnaiCapabilities.COOLER):
+        unsupported += _HEATER_OR_COOLER_PREFIXES
     registry = er.async_get(hass)
     for reg_entry in er.async_entries_for_config_entry(registry, entry.entry_id):
         if reg_entry.unique_id.startswith(unsupported):

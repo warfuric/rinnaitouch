@@ -277,6 +277,11 @@ class RinnaiPeriodSensor(RinnaiPushMixin, SensorEntity):
         return "mdi:calendar-question"
 
     @property
+    def available(self) -> bool:
+        """Unavailable while there is no status, i.e. the link is down."""
+        return self._system.get_stored_status().mode != RinnaiSystemMode.NONE
+
+    @property
     def native_value(self) -> str | None:
         """Fetch new state data for the sensor."""
         state = self._system.get_stored_status()

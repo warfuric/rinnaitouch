@@ -310,6 +310,8 @@ class RinnaiFanOperatingBinarySensorEntity(RinnaiUnitStateBinarySensorEntity):
     @property
     def available(self):
         state: RinnaiSystemStatus = self._system.get_stored_status()
+        if state.mode == RinnaiSystemMode.NONE:
+            return False  # no status: the link is down
         if state.mode == RinnaiSystemMode.EVAP:
             return True
         if state.is_multi_set_point:
