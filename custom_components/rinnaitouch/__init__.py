@@ -25,8 +25,10 @@ PLATFORMS = [
 ]
 
 # Discovery waits up to 30 s for the unit's broadcast before trying TCP directly,
-# then the connect can take 5 s and the first status about a second more.
-SETUP_TIMEOUT = 40
+# then the connect can take 5 s and the first status about a second more. Seen on a
+# real unit after a Home Assistant restart: it does not broadcast while it still
+# holds the previous session, so setup took close to 40 s; keep a clear margin.
+SETUP_TIMEOUT = 60
 
 # Entities that only make sense when the unit has the capability, keyed by the
 # lower-cased class name that starts their unique_id.
